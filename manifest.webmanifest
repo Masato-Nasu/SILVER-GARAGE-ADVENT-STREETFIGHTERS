@@ -1,0 +1,26 @@
+{
+  "id": "./",
+  "name": "SILVER GARAGE ADVENT · STREETFIGHTERS",
+  "short_name": "STREETFIGHTERS",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#151718",
+  "theme_color": "#151718",
+  "description": "毎日一枚。銀を削り、息で払い、架空のマシンを集める。",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
