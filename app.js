@@ -45,6 +45,7 @@ foil.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','Arr
 function gust(strength=1){if(ready&&(!claimed||replaying))measure();lastGust=performance.now();for(const p of particles){p.air=true;p.vx+=(100+Math.random()*250)*strength;p.vy-=(140+Math.random()*230)*strength;p.spin=(Math.random()-.5)*15;}if(particles.length===0&&progress===0)message('まず銀の膜を削ってみてください。');}
 
 async function storeCard(){
+ if(refreshDay())return;
  if(!ready||storing||claimed&&!replaying)return;
  storing=true;pointer=null;previous=null;stopScratch();stopMic();moveHand(handPoint,false);clearTimeout(saveTimer);
  $('storeCard').disabled=true;message('残りの銀を剥がして、ガレージへ。');
@@ -53,14 +54,14 @@ async function storeCard(){
  await new Promise(resolve=>{let start;function peel(t){start??=t;const f=Math.min(1,(t-start)/duration);const edge=W*(1-Math.pow(1-f,2));ctx.clearRect(0,0,edge,H);if(f<1)requestAnimationFrame(peel);else resolve();}requestAnimationFrame(peel);});
  ctx.clearRect(0,0,W,H);progress=1;particles=[];
  if(!claimed)claim();else{replaying=false;onCollectedUI();}
- shell.classList.remove('putting-away');storing=false;$('storeCard').disabled=false;showCollection(true);
+ shell.classList.remove('putting-away');storing=false;$('storeCard').disabled=false;if(!refreshDay())showCollection(true);
 }
 $('storeCard').onclick=storeCard;
 function claim(){clearTimeout(saveTimer);claimed=true;replaying=false;db.days[day]={cardId:card.id,claimed:true};db.owned[card.id]={count:(Number(db.owned[card.id]?.count)||0)+1,last:day};const days=Object.keys(db.days).sort();days.slice(0,Math.max(0,days.length-14)).forEach(d=>delete db.days[d]);persist();renderCollection();onCollectedUI();}
 function onCollectedUI(){message('今日の一枚をコレクションに追加しました。');$('storeCard').hidden=true;$('replay').hidden=false;$('tomorrow').hidden=false;$('tomorrow').textContent=cards.length===1?'試作版は全1種。次の配布は明日0時です。':'次の一枚は、明日0時。';moveHand(handPoint,false);updateProgress();}
 $('replay').addEventListener('click',()=>{replaying=true;particles=[];initFoil();$('percent').textContent='';$('storeCard').hidden=false;$('replay').hidden=true;message('同じカードで、もう一度。');});
 function renderCollection(){$('count').textContent=`${cards.filter(c=>db.owned[c.id]).length} / ${cards.length}`;$('collectionGrid').replaceChildren();for(const c of cards){const got=db.owned[c.id],b=document.createElement(got?'button':'div');b.className=got?'col-card':'col-card locked';if(got){const im=document.createElement('img');im.src=c.image;im.alt=c.name;const info=document.createElement('span');info.className='col-info';info.textContent=c.name;const sm=document.createElement('small');sm.textContent=`${c.country} · ${got.count}枚`;info.append(sm);b.append(im,info);b.onclick=()=>{$('detailArt').src=c.image;$('detailArt').alt=c.name;$('detailName').textContent=c.name;$('detailSpecs').textContent=c.spec;$('detail').showModal();};}else{const title=document.createElement('strong');title.textContent='?';const desc=document.createElement('span');desc.textContent='まだ手に入れていません';b.append(title,desc);}$('collectionGrid').append(b);}}
-function showCollection(show){$('playView').hidden=show;$('collectionView').hidden=!show;$('collectionToggle').setAttribute('aria-expanded',String(show));if(show){stopScratch();stopMic();renderCollection();$('back').focus?.();}else resizeDust();}
+function showCollection(show){if(!show&&refreshDay())return;$('playView').hidden=show;$('collectionView').hidden=!show;$('collectionToggle').setAttribute('aria-expanded',String(show));if(show){stopScratch();stopMic();renderCollection();$('back').focus?.();}else resizeDust();}
 $('collectionToggle').onclick=()=>showCollection($('collectionView').hidden);$('back').onclick=()=>showCollection(false);document.querySelector('.brand').onclick=e=>{e.preventDefault();showCollection(false);};$('closeDetail').onclick=()=>$('detail').close();$('detail').addEventListener('click',e=>{if(e.target===$('detail')){const r=$('detail').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('detail').close();}});
 function ensureAudio(){if(muted)return;try{audio||=new(window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume();if(!noiseNode){const b=audio.createBuffer(1,audio.sampleRate,audio.sampleRate),a=b.getChannelData(0);for(let i=0;i<a.length;i++)a[i]=Math.random()*2-1;noiseNode=audio.createBufferSource();noiseNode.buffer=b;noiseNode.loop=true;const filter=audio.createBiquadFilter();filter.type='bandpass';filter.frequency.value=2300;filter.Q.value=.8;noiseGain=audio.createGain();noiseGain.gain.value=0;noiseNode.connect(filter).connect(noiseGain).connect(audio.destination);noiseNode.start();}}catch{muted=true;}}
 function playScratch(intensity){if(muted||stream)return;ensureAudio();if(noiseGain){noiseGain.gain.cancelScheduledValues(audio.currentTime);noiseGain.gain.setTargetAtTime(.06*intensity,audio.currentTime,.012);noiseGain.gain.setTargetAtTime(0,audio.currentTime+.045,.025);}}
@@ -83,7 +84,20 @@ async function startMic(){
 function stopMic(){stream?.getTracks().forEach(t=>t.stop());stream=null;analyser=null;}
 function resizeDust(){const r=document.querySelector('.table').getBoundingClientRect();if(!r.width)return;dust.width=Math.round(r.width*1.3*Math.min(devicePixelRatio||1,2));dust.height=Math.round(r.height*1.3*Math.min(devicePixelRatio||1,2));}
 function frame(t){const dt=Math.min((t-lastT)/1000||.016,.035);lastT=t;if(!document.hidden&&!$('playView').hidden){dc.setTransform(dust.width/(W*1.3),0,0,dust.height/(H*1.3),dust.width*.15/1.3,dust.height*.15/1.3);dc.clearRect(-W*.2,-H*.2,W*1.4,H*1.4);for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;if(p.air){p.vy+=75*dt;p.angle+=p.spin*dt;}else{p.vx*=.86;p.vy*=.84;p.angle+=p.spin*dt*.05;}if(p.air&&(p.x>W*1.3||p.x<-W*.3||p.y<-H*.3||p.y>H*1.3)){particles.splice(i,1);continue;}dc.save();dc.translate(p.x,p.y);dc.rotate(p.angle);dc.fillStyle='rgba(0,0,0,.28)';dc.fillRect(1.2,1.7,p.size*1.9,p.size*.7);dc.fillStyle=`rgb(${p.shade},${p.shade+2},${p.shade+3})`;dc.beginPath();dc.moveTo(-p.size,0);dc.lineTo(p.size*.7,-p.size*.45);dc.lineTo(p.size,p.size*.2);dc.lineTo(-p.size*.5,p.size*.65);dc.fill();dc.strokeStyle='#485159';dc.lineWidth=.65;dc.stroke();dc.beginPath();dc.moveTo(-p.size*.65,0);dc.lineTo(p.size*.65,-p.size*.2);dc.strokeStyle='#f3f6f8';dc.lineWidth=.9;dc.stroke();dc.restore();}if(analyser){analyser.getFloatTimeDomainData(micData);let sum=0;for(const n of micData)sum+=n*n;const rms=Math.sqrt(sum/micData.length);if(t<calibrateUntil)noiseFloor=noiseFloor*.9+rms*.1;else{analyser.getByteFrequencyData(micFreq);let occupied=0;for(let i=2;i<100;i++)if(micFreq[i]>80)occupied++;if(rms>Math.max(.025,noiseFloor*3)&&occupied>12&&t-lastGust>280){gust(Math.max(.6,Math.min(2,rms*9)));}}}}requestAnimationFrame(frame);}
-window.addEventListener('resize',resizeDust);document.addEventListener('visibilitychange',()=>{if(document.hidden){stopMic();stopScratch();}else if(!storing&&dateKey()!==day){clearTimeout(saveTimer);loadDay();}});window.addEventListener('pagehide',()=>{stopMic();if(!claimed&&!replaying&&ready){clearTimeout(saveTimer);db.days[day]={cardId:card.id,mask:foil.toDataURL(),progress};persist();}});setInterval(()=>{if(!storing&&dateKey()!==day){clearTimeout(saveTimer);loadDay();}},30000);
+function refreshDay(){
+ if(storing||dateKey()===day)return false;
+ clearTimeout(saveTimer);stopMic();stopScratch();
+ if(pointer!==null&&foil.hasPointerCapture?.(pointer))foil.releasePointerCapture(pointer);
+ pointer=null;previous=null;keyboardDown=false;
+ loadDay();$('detail').close();showCollection(false);
+ return true;
+}
+window.addEventListener('resize',resizeDust);
+document.addEventListener('visibilitychange',()=>{if(document.hidden){stopMic();stopScratch();}else refreshDay();});
+window.addEventListener('pageshow',refreshDay);
+window.addEventListener('focus',refreshDay);
+window.addEventListener('pagehide',()=>{stopMic();if(!claimed&&!replaying&&ready){clearTimeout(saveTimer);db.days[day]={cardId:card.id,mask:foil.toDataURL(),progress};persist();}});
+setInterval(refreshDay,1000);
 loadDay();resizeDust();requestAnimationFrame(frame);
 if(document.modelContext?.registerTool){for(const tool of [{name:'get_garage',description:'Read the locally collected cards and today’s scratch progress.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>({date:day,progress,claimed,collection:cards.filter(c=>db.owned[c.id]).map(c=>({id:c.id,name:c.name,count:db.owned[c.id].count}))})},{name:'open_garage',description:'Open the collection view. Does not grant cards.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:false},execute:input=>{if(input&&Object.keys(input).length)throw new Error('No arguments expected');showCollection(true);return{view:'collection'};}}]){try{Promise.resolve(document.modelContext.registerTool(tool)).catch(()=>{});}catch{}}}
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
